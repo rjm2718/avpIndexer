@@ -8,17 +8,15 @@ import (
 	"time"
 )
 
-// scan AVPs once.  no match, return zero value
-// i.GetUint32(aid,vid)
-// i.fromGroup(aid,vid).GetUint32(aid,vid)
-// i.accumulateInt64(aid,vid)
-// i.applyUint32(path, func(uint32)) (numApplications int)
-//
-// don't over-think indexing yet.  Simple map of (a,v) to avpPathNode.  When needed, probably a prefix cache (trie) will
-// be in order.
+// Misc utility functions to work with diameter AVPs
 
-const wildcardValue = 1<<32 - 1
-
+// Indexer that facilitates convenient path matching and typed retrieval of AVP values.
+// Usage:
+//  ai = NewAvpIndexer(diaMsg)
+//  ai.GetUint32(vendorId,attrId)
+//  ai.FromGroup(vendorId,attrId).FromGroup(attrId2, vendorId2).GetTime(vendorId,attrId)
+//  ai.FromGroup(vendorId,attrId).AccumulateUint64(vendorId,attrId)
+//  ai.FromGroup(vendorId,attrId).VisitAvp(vendorId, attrId, f)
 type AvpIndexer struct {
 	index map[avpId][]pathElementLeafNode
 }
@@ -28,6 +26,7 @@ type avpId struct {
 	attrId   uint32
 }
 
+// an AVP exists at a path: parent is nil or we are in some tree below a grouped type of AVP
 type pathElement struct {
 	avpId
 	parent *pathElement
@@ -38,12 +37,20 @@ type pathElementLeafNode struct {
 	avp *layers.AVP
 }
 
+// with this AvpIndexer instance, retrieval operations start at given path
 type avpIndexerWithPath struct {
 	AvpIndexer
 	parent *pathElement
 }
 
+// Create a new instance of an AvpIndexer for the diameter message.
 func NewAvpIndexer(d *layers.Diameter) AvpIndexer {
+
+	// Build simple index over all AVPs; map built by traversing all AVPs in the message.
+	// don't over-think indexing yet, probably a lazily built prefix cache (trie) will
+	// be better, but so far this is fast enough given how small most diameter messages are.
+	// note: different AVPs with the same avpId can be at separate nodes, but stored in same
+	// list in this index; the retrieval functions account for that during match.
 	ai := AvpIndexer{
 		index: make(map[avpId][]pathElementLeafNode, 1),
 	}
@@ -79,6 +86,8 @@ func (ai *AvpIndexer) buildPathElementsIndex(parent *pathElement, avp *layers.AV
 
 }
 
+const wildcardValue = 1<<32 - 1
+
 func (p avpId) skey() string {
 	var s string
 	if p.vendorId == wildcardValue {
@@ -102,77 +111,108 @@ func (p pathElement) skey2() string {
 	return s
 }
 
-// ---------------------------------------------------------------------------------------
-
+// retrieve first matching uint32 value with given id, or the default/zero value for that type
 func (ai AvpIndexer) GetUint32(vendorId, attrId uint32) uint32 {
 	return ai.getDecoderIntfc(nil, vendorId, attrId, &layers.DiameterUnsigned32{}).(*layers.DiameterUnsigned32).Get()
 }
+
+// retrieve first matching uint32 value with given id, or the default/zero value for that type
 func (aip avpIndexerWithPath) GetUint32(vendorId, attrId uint32) uint32 {
 	return aip.getDecoderIntfc(aip.parent, vendorId, attrId, &layers.DiameterUnsigned32{}).(*layers.DiameterUnsigned32).Get()
 }
 
+// retrieve first matching enumerated (uint32) value with given id, or the default/zero value for that type
 func (ai AvpIndexer) GetEnumerated(vendorId, attrId uint32) uint32 {
 	return ai.getDecoderIntfc(nil, vendorId, attrId, &layers.DiameterEnumerated{}).(*layers.DiameterEnumerated).Get()
 }
+
+// retrieve first matching enumerated (uint32) value with given id, or the default/zero value for that type
 func (aip avpIndexerWithPath) GetEnumerated(vendorId, attrId uint32) uint32 {
 	return aip.getDecoderIntfc(aip.parent, vendorId, attrId, &layers.DiameterEnumerated{}).(*layers.DiameterEnumerated).Get()
 }
 
+// retrieve first matching uint64 value with given id, or the default/zero value for that type
 func (ai AvpIndexer) GetUint64(vendorId, attrId uint32) uint64 {
 	return ai.getDecoderIntfc(nil, vendorId, attrId, &layers.DiameterUnsigned64{}).(*layers.DiameterUnsigned64).Get()
 }
+
+// retrieve first matching uint64 value with given id, or the default/zero value for that type
 func (aip avpIndexerWithPath) GetUint64(vendorId, attrId uint32) uint64 {
 	return aip.getDecoderIntfc(aip.parent, vendorId, attrId, &layers.DiameterUnsigned64{}).(*layers.DiameterUnsigned64).Get()
 }
 
+// retrieve first matching int32 value with given id, or the default/zero value for that type
 func (ai AvpIndexer) GetInt32(vendorId, attrId uint32) int32 {
 	return ai.getDecoderIntfc(nil, vendorId, attrId, &layers.DiameterInteger32{}).(*layers.DiameterInteger32).Get()
 }
+
+// retrieve first matching int32 value with given id, or the default/zero value for that type
 func (aip avpIndexerWithPath) GetInt32(vendorId, attrId uint32) int32 {
 	return aip.getDecoderIntfc(aip.parent, vendorId, attrId, &layers.DiameterInteger32{}).(*layers.DiameterInteger32).Get()
 }
+
+// retrieve first matching int64 value with given id, or the default/zero value for that type
 func (ai AvpIndexer) GetInt64(vendorId, attrId uint32) int64 {
 	return ai.getDecoderIntfc(nil, vendorId, attrId, &layers.DiameterInteger64{}).(*layers.DiameterInteger64).Get()
 }
+
+// retrieve first matching int64 value with given id, or the default/zero value for that type
 func (aip avpIndexerWithPath) GetInt64(vendorId, attrId uint32) int64 {
 	return aip.getDecoderIntfc(aip.parent, vendorId, attrId, &layers.DiameterInteger64{}).(*layers.DiameterInteger64).Get()
 }
 
+// retrieve first matching float32 value with given id, or the default/zero value for that type
 func (ai AvpIndexer) GetFloat32(vendorId, attrId uint32) float32 {
 	return ai.getDecoderIntfc(nil, vendorId, attrId, &layers.DiameterFloat32{}).(*layers.DiameterFloat32).Get()
 }
+
+// retrieve first matching float32 value with given id, or the default/zero value for that type
 func (aip avpIndexerWithPath) GetFloat32(vendorId, attrId uint32) float32 {
 	return aip.getDecoderIntfc(aip.parent, vendorId, attrId, &layers.DiameterFloat32{}).(*layers.DiameterFloat32).Get()
 }
 
+// retrieve first matching float64 value with given id, or the default/zero value for that type
 func (ai AvpIndexer) GetFloat64(vendorId, attrId uint32) float64 {
 	return ai.getDecoderIntfc(nil, vendorId, attrId, &layers.DiameterFloat64{}).(*layers.DiameterFloat64).Get()
 }
+
+// retrieve first matching float3264 value with given id, or the default/zero value for that type
 func (aip avpIndexerWithPath) GetFloat64(vendorId, attrId uint32) float64 {
 	return aip.getDecoderIntfc(aip.parent, vendorId, attrId, &layers.DiameterFloat64{}).(*layers.DiameterFloat64).Get()
 }
 
+// retrieve first matching time.Time value with given id, or the default/zero value for that type
 func (ai AvpIndexer) GetTime(vendorId, attrId uint32) time.Time {
 	return ai.getDecoderIntfc(nil, vendorId, attrId, &layers.DiameterTime{}).(*layers.DiameterTime).Get()
 }
+
+// retrieve first matching time.Time value with given id, or the default/zero value for that type
 func (aip avpIndexerWithPath) GetTime(vendorId, attrId uint32) time.Time {
 	return aip.getDecoderIntfc(aip.parent, vendorId, attrId, &layers.DiameterTime{}).(*layers.DiameterTime).Get()
 }
 
+// retrieve first matching string value with given id, or the default/zero value for that type
 func (ai AvpIndexer) GetUTF8String(vendorId, attrId uint32) string {
 	return ai.getDecoderIntfc(nil, vendorId, attrId, &layers.DiameterOctetString{}).(*layers.DiameterOctetString).Get()
 }
+
+// retrieve first matching string value with given id, or the default/zero value for that type
 func (aip avpIndexerWithPath) GetUTF8String(vendorId, attrId uint32) string {
 	return aip.getDecoderIntfc(aip.parent, vendorId, attrId, &layers.DiameterOctetString{}).(*layers.DiameterOctetString).Get()
 }
 
+// retrieve first matching net.IP value with given id, or the default/zero value for that type
 func (ai AvpIndexer) GetIPAddress(vendorId, attrId uint32) net.IP {
 	return ai.getDecoderIntfc(nil, vendorId, attrId, &layers.DiameterIPAddress{}).(*layers.DiameterIPAddress).Get()
 }
+
+// retrieve first matching net.IP value with given id, or the default/zero value for that type
 func (aip avpIndexerWithPath) GetIPAddress(vendorId, attrId uint32) net.IP {
 	return aip.getDecoderIntfc(aip.parent, vendorId, attrId, &layers.DiameterIPAddress{}).(*layers.DiameterIPAddress).Get()
 }
 
+// hacking around type safety so client can access typed values conveniently.  RFCs specify types for each AVP, so if
+// you ask for the wrong type your code has a bug.
 func (ai AvpIndexer) getDecoderIntfc(parent *pathElement, vendorId, attrId uint32, dfltVal interface{}) interface{} {
 	pe := pathElement{
 		avpId:  avpId{vendorId: vendorId, attrId: attrId},
@@ -194,12 +234,16 @@ func (ai AvpIndexer) getDecoderIntfcp(path *pathElement, dfltVal interface{}) in
 	return dfltVal
 }
 
+// invoke f for each matching AVP found.  returns number of times f was invoked.
 func (ai AvpIndexer) VisitAvp(vendorId, attrId uint32, f func(avp *layers.AVP)) int {
 	return ai.visitAvpp(nil, vendorId, attrId, f)
 }
+
+// invoke f for each matching AVP found.  returns number of times f was invoked.
 func (aip avpIndexerWithPath) VisitAvp(vendorId, attrId uint32, f func(avp *layers.AVP)) int {
 	return aip.visitAvpp(aip.parent, vendorId, attrId, f)
 }
+
 func (ai AvpIndexer) visitAvpp(parent *pathElement, vendorId, attrId uint32, f func(avp *layers.AVP)) int {
 	pe := pathElement{
 		avpId:  avpId{vendorId: vendorId, attrId: attrId},
@@ -218,6 +262,7 @@ func (ai AvpIndexer) visitIntfcp(path *pathElement, f func(*layers.AVP)) int {
 	return cc
 }
 
+// add up uint64 vales for all matching AVPs
 func (ai AvpIndexer) AccumulateUint64(vendorId, attrId uint32) uint64 {
 	var sum uint64
 	ai.VisitAvp(vendorId, attrId, func(avp *layers.AVP) {
@@ -225,6 +270,8 @@ func (ai AvpIndexer) AccumulateUint64(vendorId, attrId uint32) uint64 {
 	})
 	return sum
 }
+
+// add up uint64 vales for all matching AVPs
 func (aip avpIndexerWithPath) AccumulateUint64(vendorId, attrId uint32) uint64 {
 	var sum uint64
 	aip.VisitAvp(vendorId, attrId, func(avp *layers.AVP) {
@@ -235,6 +282,7 @@ func (aip avpIndexerWithPath) AccumulateUint64(vendorId, attrId uint32) uint64 {
 
 // ---------------------------------------------------------------------------------------
 
+// return indexer that starts all retrieval operations from the given id (may match multiple nodes)
 func (ai AvpIndexer) FromGroup(vendorId, attrId uint32) avpIndexerWithPath {
 	return avpIndexerWithPath{
 		AvpIndexer: ai,
@@ -242,6 +290,7 @@ func (ai AvpIndexer) FromGroup(vendorId, attrId uint32) avpIndexerWithPath {
 	}
 }
 
+// return indexer that starts all retrieval operations from the given id (may match multiple nodes)
 func (aip avpIndexerWithPath) FromGroup(vendorId, attrId uint32) avpIndexerWithPath {
 	pe := pathElement{
 		avpId:  avpId{vendorId: vendorId, attrId: attrId},
@@ -261,7 +310,8 @@ func (p pathElement) matches(pe *pathElement) bool {
 				p.parent != nil && p.parent.matches(pe.parent))
 }
 
-// copy avp decoded values (string) to map if key exists in map.  will clobber values as found.
+// Copy AVP decoded (string) values into a flat map value only if the key (AVP name, per RFC) exists in same map.
+// Clobbers previous values as found.
 func AddAvpDataToMap(avps []*layers.AVP, data map[string]string) {
 	for _, avp := range avps {
 		if avp == nil {
@@ -275,6 +325,7 @@ func AddAvpDataToMap(avps []*layers.AVP, data map[string]string) {
 	}
 }
 
+// Create flat map json string similar to AddAvpDataToMap()
 func JsonFromAvpFields(avps []*layers.AVP, includeFields []string) string {
 	data := make(map[string]string)
 	for _, v := range includeFields {
@@ -285,12 +336,14 @@ func JsonFromAvpFields(avps []*layers.AVP, includeFields []string) string {
 	return string(js)
 }
 
+// Recursively prints AVP values to stdout, indenting with grouped sub-AVPs.
 func PrintAvps(d *layers.Diameter) {
 	for _, avp := range d.AVPs {
 		PrintAvp(avp, 0)
 	}
 }
 
+// Recursively prints AVP values to stdout, indenting with grouped sub-AVPs, starting at given indent level.
 func PrintAvp(avp *layers.AVP, indent int) {
 	if avp == nil {
 		return
@@ -322,6 +375,7 @@ func VisitAvp(avp *layers.AVP, visitor func(*layers.AVP)) {
 	}
 }
 
+// Apply the visitor function to all AVPs contained in the diameter message.
 func VisitAvps(dmsg *layers.Diameter, visitor func(*layers.AVP)) {
 	for _, avp := range dmsg.AVPs {
 		VisitAvp(avp, visitor)

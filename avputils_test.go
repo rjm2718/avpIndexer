@@ -46,32 +46,6 @@ func TestPathMatch(t *testing.T) {
 	a.Assert(t, !peA1.matches(&peB1))
 }
 
-//func TestPathMatch2(t *testing.T) {
-//	ai := NewAvpIndexer(d)
-//
-//	peA1 := pathElement{parent:nil, avpId:avpId{attrId:485} }
-//	a.Equal(t, ai.getUint32p(&peA1), uint32(1))
-//
-//	peB1 := pathElement{parent:nil, avpId:avpId{attrId:2045, vendorId:10415} }
-//	a.Equal(t, ai.getUint32p(&peB1), uint32(241))
-//
-//	peB2 := pathElement{parent:nil, avpId:avpId{attrId:2040, vendorId:10415} }
-//	peB1.parent = &peB2
-//	a.Equal(t, ai.getUint32p(&peB1), uint32(241))
-//
-//	peB3 := pathElement{parent:nil, avpId:avpId{attrId:874, vendorId:10415} }
-//	peB2.parent = &peB3
-//	a.Equal(t, ai.getUint32p(&peB1), uint32(241))
-//
-//	peB4 := pathElement{parent:nil, avpId:avpId{attrId:873, vendorId:10415} }
-//	peB3.parent = &peB4
-//	a.Equal(t, ai.getUint32p(&peB1), uint32(241))
-//
-//	peB5 := pathElement{parent:nil, avpId:avpId{attrId:873, vendorId:10415} }
-//	peB4.parent = &peB5
-//	a.Equal(t, ai.getUint32p(&peB1), uint32(0)) // no match
-//}
-
 func TestPathMatch3(t *testing.T) {
 	ai := NewAvpIndexer(d)
 
@@ -118,8 +92,6 @@ func TestStrKeys(t *testing.T) {
 	ai := NewAvpIndexer(d)
 	fmt.Printf("\n%v\n", ai)
 }
-
-
 
 // anonymized
 var testPacketDiameterAccountingRequest271 = []byte{
